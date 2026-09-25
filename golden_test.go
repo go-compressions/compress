@@ -5,12 +5,24 @@ package compress
 
 import (
 	"bytes"
+	"embed"
 	"io"
-	"os"
-	"path/filepath"
+	iofs "io/fs"
+	"path"
 	"strings"
 	"testing"
 )
+
+// ⛔ EMBEDDED, not read from disk.
+//
+// This project's emulated CI lanes build the test binary here and run it inside a
+// container with only /tmp mounted, so testdata/ is not there: the golden tests
+// found zero files and said so, on four architectures out of eight. Embedding
+// puts the corpus IN the binary, which is also what makes `go test -c` output
+// portable.
+//
+//go:embed testdata/*.Z
+var goldenFS embed.FS
 
 // golden says what each committed .Z file holds.
 //
@@ -40,7 +52,7 @@ var golden = map[string]func() []byte{
 // the coverage gate down with them. Committed streams make the suite self
 // contained and leave the binary as an extra check rather than the only one.
 func TestGoldenStreamsReadBack(t *testing.T) {
-	files, err := filepath.Glob(filepath.Join("testdata", "*.Z"))
+	files, err := iofs.Glob(goldenFS, "testdata/*.Z")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,17 +60,17 @@ func TestGoldenStreamsReadBack(t *testing.T) {
 		t.Fatalf("only %d golden streams: the corpus is meant to cover several "+
 			"widths and both the widening and the clear", len(files))
 	}
-	for _, path := range files {
-		t.Run(filepath.Base(path), func(t *testing.T) {
-			name, _, ok := strings.Cut(strings.TrimSuffix(filepath.Base(path), ".Z"), "-b")
+	for _, p := range files {
+		t.Run(path.Base(p), func(t *testing.T) {
+			name, _, ok := strings.Cut(strings.TrimSuffix(path.Base(p), ".Z"), "-b")
 			if !ok {
-				t.Fatalf("%s is not named <case>-b<bits>.Z", path)
+				t.Fatalf("%s is not named <case>-b<bits>.Z", p)
 			}
 			want, ok := golden[name]
 			if !ok {
 				t.Fatalf("%s has no entry in golden, so nothing knows what it holds", name)
 			}
-			z, err := os.ReadFile(path)
+			z, err := goldenFS.ReadFile(p)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -86,9 +98,9 @@ func TestGoldenStreamsReadBack(t *testing.T) {
 // runs at those two moments.
 func TestTheGoldenCorpusReachesWhatMatters(t *testing.T) {
 	var widened, cleared bool
-	files, _ := filepath.Glob(filepath.Join("testdata", "*.Z"))
-	for _, path := range files {
-		z, err := os.ReadFile(path)
+	files, _ := iofs.Glob(goldenFS, "testdata/*.Z")
+	for _, p := range files {
+		z, err := goldenFS.ReadFile(p)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -99,7 +111,7 @@ func TestTheGoldenCorpusReachesWhatMatters(t *testing.T) {
 		zr := r.(*reader)
 		before := zr.free
 		if _, err := io.ReadAll(zr); err != nil {
-			t.Fatalf("%s: %v", path, err)
+			t.Fatalf("%s: %v", p, err)
 		}
 		if zr.width > initBits {
 			widened = true
@@ -109,7 +121,7 @@ func TestTheGoldenCorpusReachesWhatMatters(t *testing.T) {
 			cleared = true
 		}
 		t.Logf("  %-16s ended at %2d bits, %5d entries, %d clears",
-			filepath.Base(path), zr.width, zr.free, zr.clears)
+			path.Base(p), zr.width, zr.free, zr.clears)
 	}
 	if !widened {
 		t.Error("no golden stream ever grew past nine bits: the alignment is untested")

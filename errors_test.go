@@ -8,8 +8,6 @@ import (
 	"bytes"
 	"errors"
 	"io"
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -225,10 +223,12 @@ func TestAStreamThatEndsInsideAnAlignment(t *testing.T) {
 	})
 }
 
-// goldenStream reads one committed .Z file.
+// goldenStream reads one committed .Z file out of the embedded corpus, so these
+// tests run from a test binary copied somewhere else -- which is what the
+// emulated CI lanes do.
 func goldenStream(t *testing.T, name string) []byte {
 	t.Helper()
-	z, err := os.ReadFile(filepath.Join("testdata", name))
+	z, err := goldenFS.ReadFile("testdata/" + name)
 	if err != nil {
 		t.Fatal(err)
 	}
