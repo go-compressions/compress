@@ -101,6 +101,10 @@ type reader struct {
 
 	out []byte // decoded bytes not yet handed to the caller
 	err error
+
+	// clears counts the table resets seen, so a test can assert that a corpus
+	// reaches the clear path at all rather than hoping it does.
+	clears int
 }
 
 // reset puts the width back to nine, as the start of a stream and every clear
@@ -175,6 +179,7 @@ func (z *reader) step() error {
 			return err
 		}
 		z.origin = pos
+		z.clears++
 		z.reset()
 		// ⛔ oldCode is NOT reset, and free goes back to 256 rather than 257.
 		//
