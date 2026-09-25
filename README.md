@@ -61,6 +61,24 @@ a failure for a reason that had nothing to do with the bytes.
   ends with whatever bits fill its last byte, so running out mid-code is the
   normal end and calling damage "the end" hands back a silently short file.
 
+## The suite does not need the binary
+
+Eight `.Z` streams are **committed**, each one verified to round-trip through
+`compress -d` before being stored, and each one's plaintext is *generated* rather
+than stored — so the testdata is 84 KB and there is nothing to keep in step by
+hand.
+
+That was not the first design. The suite made every fixture with `compress(1)`,
+which is absent on three of this project's eight CI lanes: every test there
+skipped, and **the coverage gate fell with them** while the tests themselves
+reported success. The live binary is now an *extra* judge rather than the only
+one, and coverage is 100% with it removed from `PATH`.
+
+The corpus asserts, on the committed files, that some stream **widened** and some
+stream **cleared** — the two moments the group alignment runs. Only one does clear,
+and it had to be built for it: text first so the table fills, then noise so the
+ratio collapses.
+
 100% statement coverage, race clean, 8 CI lanes including 4 emulated
 architectures.
 

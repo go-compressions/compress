@@ -8,6 +8,8 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -39,7 +41,11 @@ func (f *failAt) Read(p []byte) (int, error) {
 
 func TestAFailingReaderIsReported(t *testing.T) {
 	boom := errors.New("the disk went away")
-	z := squeeze(t, bytes.Repeat([]byte("the quick brown fox. "), 5000), 16)
+	// A committed stream, not one made by compress(1): these tests are about this
+	// package's error paths and must run where that binary does not exist -- which
+	// is three of this project's eight CI lanes, and they took the coverage gate
+	// down with them the first time.
+	z := goldenStream(t, "phrase-b16.Z")
 
 	for _, after := range []int{0, 1, 2, 3, 4, 40, 400} {
 		r, err := NewReader(&failAt{r: bytes.NewReader(z), left: after, err: boom})
@@ -62,7 +68,7 @@ func TestAFailingReaderIsReported(t *testing.T) {
 // TestABufioReaderIsNotWrappedTwice. The decoder needs byte-at-a-time reads, so
 // it buffers -- and buffering a buffer costs a copy of everything for nothing.
 func TestABufioReaderIsNotWrappedTwice(t *testing.T) {
-	z := squeeze(t, []byte("a short one"), 16)
+	z := goldenStream(t, "short-b16.Z")
 	inner := bufio.NewReader(bytes.NewReader(z))
 	r, err := NewReader(inner)
 	if err != nil {
@@ -71,7 +77,7 @@ func TestABufioReaderIsNotWrappedTwice(t *testing.T) {
 	if got := r.(*reader).br.r; got != inner {
 		t.Errorf("the bufio.Reader was wrapped again: %p != %p", got, inner)
 	}
-	if b, err := io.ReadAll(r); err != nil || string(b) != "a short one" {
+	if b, err := io.ReadAll(r); err != nil || string(b) != "the quick brown fox" {
 		t.Errorf("read %q, %v", b, err)
 	}
 }
@@ -87,7 +93,7 @@ func TestABufioReaderIsNotWrappedTwice(t *testing.T) {
 // over: it looks like a slow program, and a test suite reports it as a timeout
 // rather than a failure.
 func TestAPrefixChainThatDoesNotEndIsRefused(t *testing.T) {
-	z := squeeze(t, bytes.Repeat([]byte("abcabcabc"), 50), 16)
+	z := goldenStream(t, "phrase-b16.Z")
 	r, err := NewReader(bytes.NewReader(z))
 	if err != nil {
 		t.Fatal(err)
@@ -217,4 +223,14 @@ func TestAStreamThatEndsInsideAnAlignment(t *testing.T) {
 			t.Errorf("step at the end of the input gave %v, want io.EOF", err)
 		}
 	})
+}
+
+// goldenStream reads one committed .Z file.
+func goldenStream(t *testing.T, name string) []byte {
+	t.Helper()
+	z, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return z
 }
