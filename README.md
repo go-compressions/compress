@@ -1,3 +1,5 @@
+<p align="center"><img src="https://raw.githubusercontent.com/go-compressions/brand/main/social/go-compressions-compress.png" alt="go-compressions/compress" width="720"></p>
+
 # compress
 
 Reads the **`.Z`** format of `compress(1)` — pure Go, `CGO_ENABLED=0`, builds for
