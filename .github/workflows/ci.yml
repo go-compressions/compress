@@ -19,7 +19,45 @@ jobs:
       - uses: actions/setup-go@v7
         with: { go-version: stable }
       - run: go vet ./...
-      - run: go test -race -v ./...
+
+      # compress(1) is the program every .Z file in the world was made by, and
+      # squeeze() in compress_test.go builds every reference fixture with it.
+      # macOS ships /usr/bin/compress, so the judge has been running there --
+      # and on NEITHER Linux lane, which is where -race and the coverage gate
+      # run. Ubuntu spells it `ncompress`.
+      - name: the reference encoder
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ncompress
+
+      # ⛔ An install is not a binary. `apt-get install 7zip` succeeded on noble
+      # and provided no /usr/bin/7zz; the judge in go-filesystems/unarchive went
+      # on skipping and only a guard said so. Ask the runner directly.
+      - name: compress(1) is really here
+        if: runner.os != 'Windows'
+        run: command -v compress
+
+      # ⛔ `go test | tee` hands the pipeline TEE's exit status, so a failing
+      # suite reads as a pass. GitHub's `shell: bash` already adds -o pipefail,
+      # but a step whose correctness rests on a default nobody can see in it is
+      # a step that breaks the day the default moves. Written out.
+      - name: test
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -race -v ./... 2>&1 | tee test-output.txt
+
+      # squeeze() skips for three different reasons and only one of them is a
+      # defect: the other two are the generator refusing a fixture it cannot
+      # round-trip, which is a policy this test states on purpose. So match the
+      # ONE message that means the judge never ran, not `--- SKIP`.
+      - name: the judge must have judged
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if grep -q "no compress(1) here" test-output.txt; then
+            echo "::error::compress(1) was not found; every fixture went unbuilt"
+            exit 1
+          fi
       - name: coverage gate (100%)
         shell: bash
         run: |
