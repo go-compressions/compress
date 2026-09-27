@@ -32,6 +32,23 @@ func squeeze(t *testing.T, data []byte, bits int) []byte {
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 	if err := cmd.Run(); err != nil {
+		// ⛔ Exit 2 is NOT an error. compress(1) documents it as "the last file
+		// is larger after (attempted) compression", and leaves the input
+		// untouched -- the same refusal macOS's compress signals by exiting 0
+		// and writing nothing, which the check just below already handles.
+		//
+		// MEASURED the first time this judge ever ran on Linux
+		// (go-compressions/compress, run 36322084186, ncompress 5.0-1): the
+		// cases that failed were exactly one byte, two bytes, short text, all
+		// 256 values and 300k of noise, and the cases that passed were exactly
+		// the compressible ones. Nine of nine. One reference encoder exits 0
+		// on a refusal and the other exits 2, and this test had only ever met
+		// the first.
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.ExitCode() == 2 {
+			t.Skipf("compress(1) exited 2: %d bytes at -b %d do not shrink, so there "+
+				"is no reference .Z for this case", len(data), bits)
+		}
 		t.Fatalf("compress %v: %v\n%s", args, err, errOut.String())
 	}
 	if out.Len() == 0 {
