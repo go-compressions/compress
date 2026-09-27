@@ -36,6 +36,16 @@ jobs:
         if: runner.os != 'Windows'
         run: command -v compress
 
+      # ⛔ -count=1, because installing a program does not invalidate the Go
+      # test cache. MEASURED here: the arm64 lane installed ncompress,
+      # `command -v compress` printed /usr/bin/compress, and go test then
+      # answered `ok github.com/go-compressions/compress (cached)` in 50ms,
+      # replaying a result recorded on main where compress was absent -- all
+      # nine subtests "skipped" again. The cache key covers the sources, the
+      # command line, the env vars a test READS and the files it OPENS;
+      # exec.LookPath only stats, so a judge that appears on the machine is
+      # invisible to it. In CI a replayed result is never what is wanted.
+      #
       # ⛔ `go test | tee` hands the pipeline TEE's exit status, so a failing
       # suite reads as a pass. GitHub's `shell: bash` already adds -o pipefail,
       # but a step whose correctness rests on a default nobody can see in it is
@@ -44,7 +54,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          go test -race -v ./... 2>&1 | tee test-output.txt
+          go test -count=1 -race -v ./... 2>&1 | tee test-output.txt
 
       # squeeze() skips for three different reasons and only one of them is a
       # defect: the other two are the generator refusing a fixture it cannot
@@ -62,7 +72,12 @@ jobs:
         shell: bash
         run: |
           COVERPKG=$(go list ./... | paste -sd, -)
-          go test -covermode=atomic -coverprofile=cov.out -coverpkg=$COVERPKG ./...
+          # -count=1 for the same reason as above, and it matters MORE here:
+          # the run that exposed this printed `ok ... (cached) coverage: 100.0%`,
+          # so the gate passed on a profile measured on another machine's
+          # software. A coverage gate reading a replayed profile is a gate
+          # judging a run it did not watch.
+          go test -count=1 -covermode=atomic -coverprofile=cov.out -coverpkg=$COVERPKG ./...
           go tool cover -func=cov.out | tail -n 20
           if go tool cover -func=cov.out | grep -vE '100\.0%' | grep -v '^total:'; then
             echo "coverage below 100%"; exit 1
