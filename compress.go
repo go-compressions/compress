@@ -100,6 +100,7 @@ type reader struct {
 	finChar byte
 
 	out []byte // decoded bytes not yet handed to the caller
+	buf []byte // out's backing array, reused once out is drained
 	err error
 
 	// clears counts the table resets seen, so a test can assert that a corpus
@@ -130,12 +131,27 @@ func (z *reader) setWidth(w uint) {
 	z.maxCode = 1<<w - 1
 }
 
+// Read decodes on demand: one code at a time, only while no decoded byte waits.
+//
+// What it holds is bounded whatever the stream says: the three tables are
+// 1<<maxWidth entries (the header allows at most 16 bits, so under 256 KiB), and
+// out holds one decoded string, at most 1<<maxWidth bytes, because step runs
+// only once out is drained. The stream's expansion is not bounded -- a code
+// that names a 65536-byte string costs sixteen bits, and compress(1) turns 64 MiB
+// of zeros into 18 KB -- but it is paid in time by the caller reading, not in
+// memory held; a caller that collects the whole output (io.ReadAll) should cap it
+// with io.LimitReader.
 func (z *reader) Read(p []byte) (int, error) {
 	for len(z.out) == 0 {
 		if z.err != nil {
 			return 0, z.err
 		}
+		// Decode into the same backing array every time: reslicing out past
+		// what was copied leaves no room at its front, so each step used to
+		// allocate its string afresh -- 71 MB of garbage for 64 MiB of output.
+		z.out = z.buf[:0]
 		z.err = z.step()
+		z.buf = z.out[:0]
 	}
 	n := copy(p, z.out)
 	z.out = z.out[n:]

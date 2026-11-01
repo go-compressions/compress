@@ -33,6 +33,27 @@ Reading `.Z` opens archives that already exist. Writing one makes a file nobody
 should be making in 2026 — gzip, xz and zstd all compress better and are read
 everywhere. The format is here to be understood, not perpetuated.
 
+## Untrusted input
+
+The header can claim at most 16 bits, so the three tables are under 256 KiB, and
+the reader decodes one code at a time, only once the caller has taken the previous
+string (at most 64 KiB). **What it holds does not depend on the stream.**
+
+What does depend on the stream is how much it *expands*, and LZW has no ceiling to
+find: a code that names a 65 536-byte string costs sixteen bits. `compress(1)` turns
+64 MiB of zeros into 18 KB (3 640:1), and a hand-built stream of 123 KB (`lzwSquare(16)` in the tests) reaches 2.1 GB.
+That expansion is paid in time by whoever reads; a caller that collects everything
+(`io.ReadAll`) must cap it:
+
+```go
+out, err := io.ReadAll(io.LimitReader(r, 64<<20))
+```
+
+One defect was found and fixed: every code allocated its string afresh, because the
+output slice was resliced past what had been copied and left no room at its front —
+71.5 MB of garbage for 64 MiB of zeros (`TotalAlloc`, measured on a `compress(1)`
+stream), now 0.3 MB, the tables and one string. `FuzzReader` found no panic.
+
 ## ⛔ The fixture generator was broken before the reader was
 
 **macOS's `compress(1)` writes streams its own `-d` refuses**, at `-b 9`, `-b 10`
